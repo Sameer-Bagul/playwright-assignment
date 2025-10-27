@@ -1,39 +1,49 @@
 import { test, expect } from '@playwright/test';
 
-test('Add Product and Proceed to Checkout', async ({ page }) => {
-  await page.goto('https://automationexercise.com', { waitUntil: 'domcontentloaded' });
+test('E2E: Add product to cart, login if required, and proceed to checkout', async ({ page }) => {
+  // STEP 1: Go to home page
+  await page.goto('https://automationexercise.com/');
+  await expect(page.locator('a[href="/"] img[alt="Website for automation practice"]')).toBeVisible();
 
-  const firstProduct = page.locator('.product-image-wrapper').first();
-  await firstProduct.locator('.productinfo a.add-to-cart').click();
+  // STEP 2: Add first product to cart (stable locator)
+  const firstProductAddButton = page.locator('a[data-product-id="1"].add-to-cart').first();
+  await firstProductAddButton.click();
 
-  const viewCartButton = page.locator('#cartModal a:has-text("View Cart")');
-  await expect(viewCartButton).toBeVisible();
-  await viewCartButton.click();
+  // STEP 3: Click "View Cart" from the confirmation popup
+  await page.locator('u:has-text("View Cart")').click();
+  await expect(page).toHaveURL(/.*view_cart/);
 
-  const cartTable = page.locator('#cart_info_table tbody');
-  await expect(cartTable).toBeVisible();
-  const cartProduct = cartTable.locator('td.cart_description h4 a').first();
-  await expect(cartProduct).toBeVisible();
+  // STEP 4: Click on "Proceed To Checkout"
+  await page.locator('a:has-text("Proceed To Checkout")').click();
 
-  const productName = await cartProduct.textContent();
-  console.log('First product in cart:', productName);
+  // STEP 5: Handle Checkout Modal — click "Register / Login"
+  const modal = page.locator('.modal-content:has-text("Register / Login account")');
+  if (await modal.isVisible({ timeout: 5000 })) {
+    await page.locator('.modal-content a:has-text("Register / Login")').click();
+    await expect(page).toHaveURL(/.*login/);
 
-  const checkoutButton = page.locator('a.check_out');
-  await expect(checkoutButton).toBeVisible();
-  await checkoutButton.click();
-
-  const loginLink = page.locator('#checkoutModal a[href="/login"]');
-  if (await loginLink.isVisible()) {
-    await loginLink.click();
-
+    // STEP 6: Fill login form
     await page.locator('input[data-qa="login-email"]').fill('playwrighttest@example.com');
     await page.locator('input[data-qa="login-password"]').fill('GFXbtcVV@57kPSH');
     await page.locator('button[data-qa="login-button"]').click();
 
-    await page.goto('https://automationexercise.com/view_cart', { waitUntil: 'domcontentloaded' });
+    // Wait for redirect after login
+    await page.waitForURL('https://automationexercise.com/', { timeout: 15000 });
+    await expect(page.locator('a:has-text("Logged in as")')).toBeVisible({ timeout: 10000 });
 
-    await expect(cartTable).toBeVisible();
+    // STEP 7: Explicitly go back to cart (since login redirects home)
+    await page.goto('https://automationexercise.com/view_cart');
+    await expect(page).toHaveURL(/.*view_cart/);
   }
 
-  await page.screenshot({ path: 'screenshots/checkout-page.png', fullPage: true });
+  // STEP 8: Proceed to checkout again — now should work
+  await page.locator('a:has-text("Proceed To Checkout")').click();
+
+  // STEP 9: Wait for checkout page
+  await page.waitForURL('https://automationexercise.com/checkout', { timeout: 20000 });
+  await expect(page).toHaveURL('https://automationexercise.com/checkout');
+  await expect(page.locator('h2.heading:has-text("Address Details")')).toBeVisible({ timeout: 10000 });
+
+  // STEP 10: Take screenshot
+  await page.screenshot({ path: 'checkout-page.png', fullPage: true });
 });
