@@ -1,79 +1,71 @@
 import { test, expect } from '@playwright/test';
 
-test('Place Order and Check Card Details (Stable)', async ({ page }) => {
-  // Disable animations to avoid hidden elements due to transitions
-  await page.addInitScript(() => {
-    const style = document.createElement('style');
-    style.innerHTML = `* { transition-duration: 0s !important; animation-duration: 0s !important; }`;
-    document.head.appendChild(style);
-  });
+test('E2E: Add product to cart, login if required, proceed to checkout, and place order', async ({ page }) => {
+  // STEP 1: Go to home page
+  await page.goto('https://automationexercise.com/');
+  await expect(page.locator('a[href="/"] img[alt="Website for automation practice"]')).toBeVisible();
 
-  //  Navigate to home page
-  await page.goto('https://automationexercise.com', { waitUntil: 'domcontentloaded' });
+  // STEP 2: Add first product to cart (stable locator)
+  const firstProductAddButton = page.locator('a[data-product-id="1"].add-to-cart').first();
+  await firstProductAddButton.click();
 
-  //  Add first product to cart
-  const firstProduct = page.locator('.product-image-wrapper').first();
-  await firstProduct.locator('.productinfo a.add-to-cart').click();
+  // STEP 3: Click "View Cart" from the confirmation popup
+  await page.locator('u:has-text("View Cart")').click();
+  await expect(page).toHaveURL(/.*view_cart/);
 
-  //  Click "View Cart" from modal
-  const viewCartButton = page.locator('#cartModal a:has-text("View Cart")');
-  await viewCartButton.waitFor({ state: 'visible', timeout: 10000 });
-  await viewCartButton.click();
+  // STEP 4: Click on "Proceed To Checkout"
+  await page.locator('a:has-text("Proceed To Checkout")').click();
 
-  //  Verify product in cart
-  const cartTable = page.locator('#cart_info_table tbody');
-  await cartTable.waitFor({ state: 'visible', timeout: 10000 });
-  const cartProduct = cartTable.locator('td.cart_description h4 a').first();
-  await expect(cartProduct).toBeVisible();
+  // STEP 5: Handle Checkout Modal — click "Register / Login"
+  const modal = page.locator('.modal-content:has-text("Register / Login account")');
+  if (await modal.isVisible({ timeout: 5000 })) {
+    await page.locator('.modal-content a:has-text("Register / Login")').click();
+    await expect(page).toHaveURL(/.*login/);
 
-  // Optional: log product name
-  const productName = await cartProduct.textContent();
-  console.log('First product in cart:', productName);
-
-  //  Click "Proceed To Checkout"
-  const checkoutButton = page.locator('a.check_out');
-  await checkoutButton.waitFor({ state: 'visible', timeout: 10000 });
-  await checkoutButton.click();
-
-  //  Handle login modal if it appears
-  const loginLink = page.locator('#checkoutModal a[href="/login"]');
-  if (await loginLink.isVisible()) {
-    await loginLink.click();
-
-    // Fill login credentials
+    // STEP 6: Fill login form
     await page.locator('input[data-qa="login-email"]').fill('playwrighttest@example.com');
     await page.locator('input[data-qa="login-password"]').fill('GFXbtcVV@57kPSH');
     await page.locator('button[data-qa="login-button"]').click();
 
-    // Navigate back to cart after login
-    await page.goto('https://automationexercise.com/view_cart', { waitUntil: 'domcontentloaded' });
-    await cartTable.waitFor({ state: 'visible', timeout: 10000 });
+    // Wait for redirect after login
+    await page.waitForURL('https://automationexercise.com/', { timeout: 15000 });
+    await expect(page.locator('a:has-text("Logged in as")')).toBeVisible({ timeout: 10000 });
 
-    // Click Proceed to Checkout again
-    await checkoutButton.waitFor({ state: 'visible', timeout: 10000 });
-    await checkoutButton.click();
+    // STEP 7: Explicitly go back to cart (since login redirects home)
+    await page.goto('https://automationexercise.com/view_cart');
+    await expect(page).toHaveURL(/.*view_cart/);
   }
 
-  // Fill order details if fields are visible
-  const nameField = page.locator('input[data-qa="name"]');
-  if (await nameField.isVisible()) {
-    await nameField.fill('Playwright Test User');
-    await page.locator('input[data-qa="address"]').fill('123 Test Street');
-    await page.locator('textarea[data-qa="comment"]').fill('Please deliver fast.');
-  }
+  // STEP 8: Proceed to checkout again — now should work
+  await page.locator('a:has-text("Proceed To Checkout")').click();
 
-  // Click "Place Order" safely
-  const placeOrderButton = page.locator('a:has-text("Place Order")');
-  await placeOrderButton.waitFor({ state: 'visible', timeout: 10000 });
+  // STEP 9: Wait for checkout page
+  await page.waitForURL('https://automationexercise.com/checkout', { timeout: 20000 });
+  await expect(page).toHaveURL('https://automationexercise.com/checkout');
+  await expect(page.locator('h2.heading:has-text("Address Details")')).toBeVisible({ timeout: 10000 });
+
+  // STEP 10: Take screenshot of checkout page
+  await page.screenshot({ path: 'checkout-page.png', fullPage: true });
+
+  // ------------------------------
+  // STEP 11: Click "Place Order" → navigate to payment page
+  // ------------------------------
+  const placeOrderButton = page.locator('a.btn.btn-default.check_out:has-text("Place Order")');
+  await expect(placeOrderButton).toBeVisible({ timeout: 10000 });
   await placeOrderButton.click();
 
-  // Assert that card/payment details form appears
-  const cardForm = page.locator('input[name="card_number"], input[name="cardholder_name"], input[name="cvc"]');
-  await cardForm.first().waitFor({ state: 'visible', timeout: 10000 });
-  await expect(cardForm.first()).toBeVisible();
+  // STEP 12: Verify payment page loaded
+  await page.waitForURL('https://automationexercise.com/payment', { timeout: 15000 });
+  await expect(page).toHaveURL('https://automationexercise.com/payment');
 
-  // Take screenshot of the payment section
-  await page.screenshot({ path: 'screenshots/payment-page.png', fullPage: true });
+  // Assert that it’s asking for card details
+  await expect(page.locator('h2:has-text("Payment")')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('input[name="name_on_card"]')).toBeVisible();
+  await expect(page.locator('input[name="card_number"]')).toBeVisible();
+  await expect(page.locator('input[name="cvc"]')).toBeVisible();
+  await expect(page.locator('input[name="expiry_month"]')).toBeVisible();
+  await expect(page.locator('input[name="expiry_year"]')).toBeVisible();
 
-  console.log('Order placement reached card details page successfully.');
+  // STEP 13: Take screenshot of payment page
+  await page.screenshot({ path: 'payment-page.png', fullPage: true });
 });
